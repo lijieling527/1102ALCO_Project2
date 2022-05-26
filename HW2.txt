@@ -1,1 +1,0 @@
-3bit的history predictor狀態有 SN,WN1,WN2,WN3,WT1,WT2,WT3,ST，一開始history 設為000，之後會去計算預測狀態，counter有8個0，可以計算各數值在哪個狀態，狀態如果預測正確都是N，counter就--，狀態如果預測正確都是T，counter就++，如果錯誤就會跳到下一個狀態
