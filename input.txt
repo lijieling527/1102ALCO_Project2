@@ -2,6 +2,7 @@
 0x004		li R4,25;
 	Loop:
 0x008		beq R4,R3,End;	
-0x00C		addi R3,R3,1;	
-0x010		beq R0,R0,Loop;
+0x00C		addi R3,R3,2;
+0x010		addi R4,R4,1;	
+0x014		beq R0,R0,Loop;
 	End:

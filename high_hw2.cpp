@@ -9,36 +9,32 @@
 #include <iomanip>
 using namespace std;
 
-struct reg
-{
-	string name;
-	int value;
-};
+
 struct predict
 {
-	string state_table[8] = { "SN","SN","SN","SN","SN","SN","SN","SN" };
+	string state_table[8] = { "SN","SN","SN" ,"SN", "SN","SN","SN" ,"SN"};
+	char table[8] = { 'N','N','N','N', 'N','N','N','N' };
 	int bit[3] = { 0,0,0 };
-	int mispre = 0;
+	int missprediction = 0;
 };
-vector<string>PC, type, inst, label;
-vector <predict> predictor;
-int outcome = 0;
-char outcomec;
-char pre;
-int state;
-int entry_num;
-vector<int>PCdex;
-vector<reg> use_reg;
-string misprediction;
-string table[4] = { "SN","WN","WT","ST" };
-int Base2To10(string binary)
+
+struct reg
 {
-	int value = 0;
-	reverse(binary.begin(), binary.end());
-	for (int i = 0; i < binary.size(); i++)
-		value += pow(2, i) * (binary[i] - '0');
-	return value;
-}
+	string regname;
+	int regvalue;
+};
+
+vector<string>PC; //0x000
+vector<string>type; //li,addi,beq
+vector<string>inst; //R3,0
+vector<string>label; //End
+vector<reg> regbuffer;
+vector <predict> predictor;
+
+int outcome = 0; //0代表 Not taken，1代表Taken
+vector<int>PCdex;
+string table[4] = { "SN","WN","WT","ST" };
+
 int Base16To10(string pc)
 {
 	int i = pc.size() - 1;
@@ -75,43 +71,45 @@ int Base16To10(string pc)
 	}
 	return newPC;
 }
-void calc_li(int num)
+
+
+void li(int num)
 {
 	int end = inst[num].find(',');
 	string r = inst[num].substr(0, end);
 	reg temp;
-	temp.name = r;
+	temp.regname = r;
 	string imm = inst[num].substr(end + 1, inst[num].size());
-	temp.value = stoi(imm);
-	use_reg.push_back(temp);
+	temp.regvalue = stoi(imm);
+	regbuffer.push_back(temp);
 }
-void calc_addi(int num)
+void addi(int num)
 {
 	int end = inst[num].find(',');
-	int immediate = inst[num].find(',', end + 1);
-	string temp = inst[num].substr(immediate + 1, inst[num].size() - (immediate + 1));
+	int immdeate = inst[num].find(',', end + 1);
+	string temp = inst[num].substr(immdeate + 1, inst[num].size() - (immdeate + 1));
 	string r = inst[num].substr(0, end);
-	for (int i = 0; i < use_reg.size(); i++)
-		if (use_reg[i].name == r)
-			use_reg[i].value += stoi(temp);
+	for (int i = 0; i < regbuffer.size(); i++)
+		if (regbuffer[i].regname == r)
+			regbuffer[i].regvalue += stoi(temp);
 }
-int calc_beq(int num)
+int beq(int num)
 {
 	int n = inst[num].find(',');
 	string reg1 = inst[num].substr(0, n);
 	int last = inst[num].find(',', n + 1);
 	string reg2 = inst[num].substr(n + 1, last - (n + 1));
 	string l = inst[num].substr(last + 1, inst[num].size() - 1);
-	if (reg1 == reg2)
+	if (reg1 == reg2)//一樣就taken
 	{
 		for (int i = 0; i < label.size(); i++)
 		{
-			if (label[i] == l)
+			if (label[i] == l)//找label
 			{
-				if (i + 1 == PCdex.size())
+				if (i + 1 == PCdex.size())//end
 				{
 					outcome = 1;
-					return -100;
+					return -1;
 				}
 				outcome = 1;
 				return PCdex[i + 1];
@@ -119,14 +117,14 @@ int calc_beq(int num)
 		}
 	}
 	int reg1num = 0, reg2num = 0;
-	for (int i = 0; i < use_reg.size(); i++)
+	for (int i = 0; i < regbuffer.size(); i++)
 	{
-		if (use_reg[i].name == reg1)
+		if (regbuffer[i].regname == reg1)
 			reg1num = i;
-		if (use_reg[i].name == reg2)
+		if (regbuffer[i].regname == reg2)
 			reg2num = i;
 	}
-	if (use_reg[reg1num].value != use_reg[reg2num].value)
+	if (regbuffer[reg1num].regvalue != regbuffer[reg2num].regvalue)
 	{
 		outcome = 0;
 		return PCdex[num] + 4;
@@ -138,66 +136,136 @@ int calc_beq(int num)
 			if (i + 1 == PCdex.size())
 			{
 				outcome = 1;
-				return -100;
+				return -1;
 			}
 			outcome = 1;
 			return PCdex[i + 1];
 		}
 	}
 }
-void prediction(int thispredictor)
+
+void ALU(int* num, int* next)
 {
+
+	if (type[*num] == "li")
+	{
+		li(*num);
+		outcome = 0;
+		*next += 4;
+	}
+	else if (type[*num] == "addi")
+	{
+		addi(*num);
+		outcome = 0;
+		*next += 4;
+	}
+	else if (type[*num] == "beq")
+	{
+		*next = beq(*num);
+	}
+
+}
+void prediction(int outcome, int thispredictor)
+{
+	char out;
+	char pre;
+
 	cout << endl << predictor[thispredictor].bit[0] << predictor[thispredictor].bit[1] << predictor[thispredictor].bit[2] << ' ';
+
 	for (int j = 0; j < 8; j++)
 		cout << predictor[thispredictor].state_table[j] << ' ';
-}
-void update(int thispredictor, int outcome)
-{
-	state = 0;
+
+	if (outcome == 1)
+		out = 'T';
+
+	else
+		out = 'N';
+
+	int s = 0;
+	string missprediction;
 	for (int i = 2, j = 0; i >= 0; i--, j++)
-		state += predictor[thispredictor].bit[i] * pow(2, j);
+		s += predictor[thispredictor].bit[i] * pow(2, j);
+	int state = s;
 	int num;
 	for (int i = 0; i < 4; i++)
-		if (table[i] == predictor[thispredictor].state_table[state])
+		if (table[i] == predictor[thispredictor].state_table[s])
 			num = i;
-	if (outcome == 0 && predictor[thispredictor].state_table[state][1] == 'N')
+	if (outcome == 0 && predictor[thispredictor].table[s] == 'N')
 	{
-		if (predictor[thispredictor].state_table[state] != "SN")
-			predictor[thispredictor].state_table[state] = table[num - 1];
-		misprediction = "not miss";
+		if (predictor[thispredictor].state_table[s] != "SN")
+			predictor[thispredictor].state_table[s] = table[num - 1];
+		missprediction = "not miss";
 		pre = 'N';
 	}
-	else if (outcome == 0 && predictor[thispredictor].state_table[state][1] == 'T')
+	else if (outcome == 0 && predictor[thispredictor].table[s] == 'T')
 	{
-		predictor[thispredictor].state_table[state] = table[num - 1];
-		misprediction = "miss";
+		if (predictor[thispredictor].state_table[s] == "WT")
+			predictor[thispredictor].table[s] = 'N';
+		predictor[thispredictor].state_table[s] = table[num - 1];
+		missprediction = "miss";
 		pre = 'T';
-		predictor[thispredictor].mispre++;
+		predictor[thispredictor].missprediction++;
 	}
-	else if (outcome == 1 && predictor[thispredictor].state_table[state][1] == 'T')
+	else if (outcome == 1 && predictor[thispredictor].table[s] == 'T')
 	{
-		if (predictor[thispredictor].state_table[state] != "ST")
-			predictor[thispredictor].state_table[state] = table[num + 1];
-		misprediction = "not miss";
+		if (predictor[thispredictor].state_table[s] != "ST")
+			predictor[thispredictor].state_table[s] = table[num + 1];
+		missprediction = "not miss";
 		pre = 'T';
 	}
-	else if (outcome == 1 && predictor[thispredictor].state_table[state][1] == 'N')
+	else if (outcome == 1 && predictor[thispredictor].table[s] == 'N')
 	{
-		predictor[thispredictor].state_table[state] = table[num + 1];
-		misprediction = "miss";
+		if (predictor[thispredictor].state_table[s] != "WN")
+			predictor[thispredictor].table[s] = 'T';
+		predictor[thispredictor].state_table[s] = table[num + 1];
+		missprediction = "miss";
 		pre = 'N';
-		predictor[thispredictor].mispre++;
+		predictor[thispredictor].missprediction++;
 	}
-	if (outcome == 1)
-		outcomec = 'T';
-	else
-		outcomec = 'N';
-	cout << "entry: " << thispredictor << ' ' << "misprediction: " << predictor[thispredictor].mispre;
-	cout << endl << pre << ' ' << outcomec << ' ' << misprediction << endl;
-
-	predictor[thispredictor].bit[0] = predictor[thispredictor].bit[1];
-	predictor[thispredictor].bit[1] = predictor[thispredictor].bit[2];
-	predictor[thispredictor].bit[2] = outcome;
+	cout << "entry: " << thispredictor << ' ' << "misprediction: " << predictor[thispredictor].missprediction;
+	cout << "    pre: " << pre << "   out:  " << out << "     " << missprediction << endl;
+}
+void finput(string input)
+{
+	if (input.find(':') != string::npos)//label, ex: LOOP
+	{
+		input.erase(remove(input.begin(), input.end(), '\t'), input.end());
+		label.push_back(input.substr(0, input.find(':')));
+		PC.push_back("");
+		type.push_back("");
+		inst.push_back("");
+	}
+	else //no label
+	{
+		label.push_back("");
+		PC.push_back(input.substr(0, 5));
+		int x = 5;
+		char a = input[x];
+		while (a == '\t')
+		{
+			x += 1;
+			a = input[x];
+		}
+		if (a == 'l')
+		{
+			type.push_back(input.substr(x, 2));
+			x += 3;
+		}
+		else if (a == 'b')
+		{
+			type.push_back(input.substr(x, 3));
+			x += 4;
+		}
+		else if (a == 'a')
+		{
+			type.push_back(input.substr(x, 4));
+			x += 5;
+		}
+		int end = input.find(';');
+		string temp = input.substr(x, end - x);
+		temp.erase(remove(temp.begin(), temp.end(), ' '), temp.end());
+		inst.push_back(temp);
+	}
 }
 int main()
 {
@@ -205,45 +273,7 @@ int main()
 	string input;
 	while (getline(fin, input))
 	{
-		if (input.find(':') != string::npos)//找到label
-		{
-			input.erase(remove(input.begin(), input.end(), '\t'), input.end());
-			label.push_back(input.substr(0, input.find(':')));
-			PC.push_back("");
-			type.push_back("");
-			inst.push_back("");
-		}
-		else
-		{
-			label.push_back("");
-			PC.push_back(input.substr(0, 5));
-			int x = 5;
-			char a = input[x];
-			while (a == '\t')
-			{
-				x += 1;
-				a = input[x];
-			}
-			if (a == 'l')
-			{
-				type.push_back(input.substr(x, 2));
-				x += 3;
-			}
-			else if (a == 'b')
-			{
-				type.push_back(input.substr(x, 3));
-				x += 4;
-			}
-			else if (a == 'a')
-			{
-				type.push_back(input.substr(x, 4));
-				x += 5;
-			}
-			int end = input.find(';');
-			string temp = input.substr(x, end - x);
-			temp.erase(remove(temp.begin(), temp.end(), ' '), temp.end());
-			inst.push_back(temp);
-		}
+		finput(input);
 	}
 	for (int i = 0; i < PC.size(); i++)
 	{
@@ -252,9 +282,10 @@ int main()
 		if (PC[i] != "")
 			PCdex[i] = Base16To10(PC[i]);
 	}
+	int entry_num;
 	cout << "Please input entry (entry>0) :" << endl;
 	cin >> entry_num;
-	while (entry_num <= 0 || (entry_num & (entry_num - 1)))
+	while (entry_num <= 0 || (entry_num & (entry_num - 1)))//判斷是否為2的次方數
 	{
 		cout << "Number of entries is an error!" << endl;
 		cout << "Please input entry (entry>0) :" << endl;
@@ -265,10 +296,10 @@ int main()
 		predict temp;
 		predictor.push_back(temp);
 	}
-	PCdex[PCdex.size() - 1] = -100;
-	int next = PCdex[0];
+	PCdex[PCdex.size() - 1] = -1;
+	int next = PCdex[0];//下一個inst pc
 	int nextpredictor = -1;
-	while (next != -100)
+	while (next != -1)
 	{
 		int num = 0;
 		for (; num < PCdex.size(); num++)
@@ -278,23 +309,12 @@ int main()
 		}
 		cout << endl << PC[num] << ' ' << type[num] << ' ' << inst[num];
 		nextpredictor = (nextpredictor + 1) % entry_num;
-		prediction(nextpredictor);
-		if (type[num] == "li")
-		{
-			calc_li(num);
-			outcome = 0;
-			next += 4;
-		}
-		else if (type[num] == "addi")
-		{
-			calc_addi(num);
-			outcome = 0;
-			next += 4;
-		}
-		else if (type[num] == "beq")
-		{
-			next = calc_beq(num);
-		}
-		update(nextpredictor, outcome);
+
+		ALU(&num, &next);
+		
+		prediction(outcome, nextpredictor);
+		predictor[nextpredictor].bit[0] = predictor[nextpredictor].bit[1];
+		predictor[nextpredictor].bit[1] = predictor[nextpredictor].bit[2];
+		predictor[nextpredictor].bit[2] = outcome;
 	}
 }
